@@ -45,7 +45,7 @@ USERAGENT = [
   "Dalvik/1.2.0.88 (Linux; U; Android 10; CPH1825 Build/RKQ2.6.5.5210)"
 ]
 SUPPORTED_REGIONS = {"IND", "BR", "US", "SAC", "NA", "SG", "RU", "ID", "TW", "VN", "TH", "ME", "PK", "CIS", "BD", "EUROPE"}
-API_KEY = base64.b64decode("aGVudGFpeg==")  # 🔑 key cố định
+API_KEY = "hentaiz"  # 🔑 key cố định
 
 
 API_URL_TIKTOK = "https://www.tikwm.com/api/"
