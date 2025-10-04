@@ -1,0 +1,749 @@
+import asyncio
+import time
+import httpx
+import json
+from collections import defaultdict
+from functools import wraps
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from cachetools import TTLCache
+from typing import Tuple
+from proto import FreeFire_pb2, main_pb2, AccountPersonalShow_pb2
+from google.protobuf import json_format, message
+from google.protobuf.message import Message
+from Crypto.Cipher import AES
+import base64
+
+from flask import Flask, request, jsonify
+import requests
+import json
+import os
+import re
+import datetime
+import jwt  # pyjwt
+import tempfile
+import zipfile
+
+# ==============================
+    
+# === Flask App Setup ===
+app = Flask('')
+CORS(app)
+cache = TTLCache(maxsize=100, ttl=300)
+cached_tokens = defaultdict(dict)
+
+@app.route('/')
+def home():
+    return "make api telegram: @henntaiiz"
+    
+# === Settings ===
+MAIN_KEY = base64.b64decode('WWcmdGMlREV1aDYlWmNeOA==')
+MAIN_IV = base64.b64decode('Nm95WkRyMjJFM3ljaGpNJQ==')
+RELEASEVERSION = "OB50"
+USERAGENT = "Dalvik/2.1.0 (Linux; U; Android 13; CPH2095 Build/RKQ1.211119.001)"
+SUPPORTED_REGIONS = {"IND", "BR", "US", "SAC", "NA", "SG", "RU", "ID", "TW", "VN", "TH", "ME", "PK", "CIS", "BD", "EUROPE"}
+API_KEY = "hentaiz"  # 🔑 key cố định
+
+
+API_URL_TIKTOK = "https://www.tikwm.com/api/"
+
+# ==============================
+# Trang chủ chống chặn web
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:90.0) Gecko/20100101 Firefox/90.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0'
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:88.0) Gecko/20100101 Firefox/88.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:90.0) Gecko/20100101 Firefox/90.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:89.0) Gecko/20100101 Firefox/89.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:88.0) Gecko/20100101 Firefox/88.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 Edg/91.0.864.48',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36 Edg/90.0.818.66',
+    'Mozilla/5.0 (Android 10; Mobile; rv:91.0) Gecko/91.0 Firefox/91.0',
+    'Mozilla/5.0 (Android 11; Mobile; rv:89.0) Gecko/89.0 Firefox/89.0',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.0 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 13_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.5 Mobile/15E148 Safari/604.1',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 OPR/77.0.4054.172',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36 OPR/76.0.4017.177',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; Trident/7.0; AS; rv:11.0) like Gecko',
+    'Mozilla/5.0 (Windows NT 6.1; WOW64; Trident/7.0; AS; rv:11.0) like Gecko',
+    'Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:89.0) Gecko/20100101 Firefox/89.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/90.0.4430.212 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.82 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.96 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/86.0.4240.198 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/85.0.4183.121 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/84.0.4147.125 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/83.0.4103.116 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/82.0.4085.117 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/81.0.4044.138 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/80.0.3987.163 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.88 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/78.0.3904.108 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/77.0.3865.120 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/76.0.3809.132 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/75.0.3770.100 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/74.0.3729.169 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/73.0.3683.86 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/72.0.3626.121 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/71.0.3578.98 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/70.0.3538.77 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/69.0.3497.100 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/68.0.3440.106 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/67.0.3396.99 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/66.0.3359.181 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/64.0.3282.140 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/63.0.3239.132 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/62.0.3202.94 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/61.0.3163.100 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/60.0.3112.113 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/59.0.3071.115 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; Trident/7.0; AS; rv:11.0) like Gecko',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; Trident/7.0; AS; rv:11.0) like Gecko',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:92.0) Gecko/20100101 Firefox/92.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:93.0) Gecko/20100101 Firefox/93.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:94.0) Gecko/20100101 Firefox/94.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:95.0) Gecko/20100101 Firefox/95.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; Trident/7.0; AS; rv:11.0) like Gecko',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:96.0) Gecko/20100101 Firefox/96.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:97.0) Gecko/20100101 Firefox/97.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:98.0) Gecko/20100101 Firefox/98.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:99.0) Gecko/20100101 Firefox/99.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; Trident/7.0; AS; rv:11.0) like Gecko',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:100.0) Gecko/20100101 Firefox/100.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:101.0) Gecko/20100101 Firefox/101.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:102.0) Gecko/20100101 Firefox/102.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/137.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:103.0) Gecko/20100101 Firefox/103.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:104.0) Gecko/20100101 Firefox/104.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:105.0) Gecko/20100101 Firefox/105.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:106.0) Gecko/20100101 Firefox/106.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:107.0) Gecko/20100101 Firefox/107.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64; rv:108.0) Gecko/20100101 Firefox/108.0',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/148.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 11.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36',
+]
+
+ACCEPT_LANGUAGES = ["en-US,en;q=0.9", "fr-FR,fr;q=0.9", "es-ES,es;q=0.9", "de-DE,de;q=0.9", "zh-CN,zh;q=0.9"]
+
+
+# === Helper Functions ===
+def pad(text: bytes) -> bytes:
+    padding_length = AES.block_size - (len(text) % AES.block_size)
+    return text + bytes([padding_length] * padding_length)
+
+def aes_cbc_encrypt(key: bytes, iv: bytes, plaintext: bytes) -> bytes:
+    aes = AES.new(key, AES.MODE_CBC, iv)
+    return aes.encrypt(pad(plaintext))
+
+def decode_protobuf(encoded_data: bytes, message_type: message.Message) -> message.Message:
+    instance = message_type()
+    instance.ParseFromString(encoded_data)
+    return instance
+
+async def json_to_proto(json_data: str, proto_message: Message) -> bytes:
+    json_format.ParseDict(json.loads(json_data), proto_message)
+    return proto_message.SerializeToString()
+
+def get_account_credentials(region: str) -> str:
+    r = region.upper()
+    if r == "IND":
+        return "uid=3959796107&password=642AECAE83EA5A3578B4FD40FF56FA281D33F0DAFE1A25B90A01595BE501E4D2"
+    elif r == "VN":
+        return "uid=4191448762&password=C1940554A8895B558193B711602921A914762ED8E7884CDD1D31D02797703EE8"
+    elif r in {"BR", "US", "SAC", "NA"}:
+        return "uid=3978687748&password=9C22CD3ED0E9781167583B815F53EB36AB9C560098324EF8DCD514B61A4146D7"
+    else:
+        return "uid=3978690138&password=DB98F58E07C248FAA82CB7FD4527DC37607CFF6C2DC48D1788F52238FFF4DA83"
+
+# === Token Generation ===
+async def get_access_token(account: str):
+    url = "https://ffmconnect.live.gop.garenanow.com/oauth/guest/token/grant"
+    payload = account + "&response_type=token&client_type=2&client_secret=2ee44819e9b4598845141067b281621874d0d5d7af9d8f7e00c1e54715b7d1e3&client_id=100067"
+    headers = {'User-Agent': USERAGENT, 'Connection': "Keep-Alive", 'Accept-Encoding': "gzip", 'Content-Type': "application/x-www-form-urlencoded"}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, data=payload, headers=headers)
+        data = resp.json()
+        return data.get("access_token", "0"), data.get("open_id", "0")
+
+async def create_jwt(region: str):
+    account = get_account_credentials(region)
+    token_val, open_id = await get_access_token(account)
+    body = json.dumps({"open_id": open_id, "open_id_type": "4", "login_token": token_val, "orign_platform_type": "4"})
+    proto_bytes = await json_to_proto(body, FreeFire_pb2.LoginReq())
+    payload = aes_cbc_encrypt(MAIN_KEY, MAIN_IV, proto_bytes)
+    url = "https://loginbp.ggblueshark.com/MajorLogin"
+    headers = {'User-Agent': USERAGENT, 'Connection': "Keep-Alive", 'Accept-Encoding': "gzip",
+               'Content-Type': "application/octet-stream", 'Expect': "100-continue", 'X-Unity-Version': "2018.4.11f1",
+               'X-GA': "v1 1", 'ReleaseVersion': RELEASEVERSION}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(url, data=payload, headers=headers)
+        msg = json.loads(json_format.MessageToJson(decode_protobuf(resp.content, FreeFire_pb2.LoginRes)))
+        cached_tokens[region] = {
+            'token': f"Bearer {msg.get('token','0')}",
+            'region': msg.get('lockRegion','0'),
+            'server_url': msg.get('serverUrl','0'),
+            'expires_at': time.time() + 25200
+        }
+
+async def initialize_tokens():
+    tasks = [create_jwt(r) for r in SUPPORTED_REGIONS]
+    await asyncio.gather(*tasks)
+
+async def refresh_tokens_periodically():
+    while True:
+        await asyncio.sleep(25200)
+        await initialize_tokens()
+
+async def get_token_info(region: str) -> Tuple[str,str,str]:
+    info = cached_tokens.get(region)
+    if info and time.time() < info['expires_at']:
+        return info['token'], info['region'], info['server_url']
+    await create_jwt(region)
+    info = cached_tokens[region]
+    return info['token'], info['region'], info['server_url']
+
+async def GetAccountInformation(uid, unk, region, endpoint):
+    region = region.upper()
+    if region not in SUPPORTED_REGIONS:
+        raise ValueError(f"Unsupported region: {region}")
+    payload = await json_to_proto(json.dumps({'a': uid, 'b': unk}), main_pb2.GetPlayerPersonalShow())
+    data_enc = aes_cbc_encrypt(MAIN_KEY, MAIN_IV, payload)
+    token, lock, server = await get_token_info(region)
+    headers = {'User-Agent': USERAGENT, 'Connection': "Keep-Alive", 'Accept-Encoding': "gzip",
+               'Content-Type': "application/octet-stream", 'Expect': "100-continue",
+               'Authorization': token, 'X-Unity-Version': "2018.4.11f1", 'X-GA': "v1 1",
+               'ReleaseVersion': RELEASEVERSION}
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(server+endpoint, data=data_enc, headers=headers)
+        return json.loads(json_format.MessageToJson(decode_protobuf(resp.content, AccountPersonalShow_pb2.AccountPersonalShowInfo)))
+
+# === Caching Decorator ===
+def cached_endpoint(ttl=300):
+    def decorator(fn):
+        @wraps(fn)
+        def wrapper(*a, **k):
+            key = (request.path, tuple(request.args.items()))
+            if key in cache:
+                return cache[key]
+            res = fn(*a, **k)
+            cache[key] = res
+            return res
+        return wrapper
+    return decorator
+
+
+# ==============================
+# HÀM: Lấy thông tin tiktok
+# ==============================
+import requests
+from flask import request, jsonify, Response
+
+@app.route("/tiktok", methods=["GET", "POST"])
+def tiktok_info():
+    try:
+        # Lấy URL TikTok theo dạng: /tiktok?https://...
+        raw_qs = request.query_string.decode("utf-8")
+        url = raw_qs if raw_qs else (request.args.get("url") or request.form.get("url"))
+        if not url:
+            return jsonify({"⚠️ lỗi": "Vui lòng truyền link TikTok sau dấu ? hoặc param 'url'"}), 400
+
+        # Gọi API TikTok
+        params = {"url": url}
+        response = requests.get(API_URL_TIKTOK, params=params).json()
+
+        if response.get("code") != 0:
+            return jsonify({"❌ lỗi": "Không thể lấy dữ liệu. Vui lòng thử lại!"}), 500
+
+        data = response["data"]
+
+        # Trích thông tin
+        video_url = data.get("play")
+        music_url = data.get("music", "Không có")
+        title = data.get("title", "Không có tiêu đề").replace(" ", "_")  # để đặt tên file
+        author = data["author"]["nickname"]
+        avatar = data["author"]["avatar"]
+        region = data.get("region", "Không xác định")
+        duration = data.get("duration", 0)
+        likes = data.get("digg_count", 0)
+        comments = data.get("comment_count", 0)
+        shares = data.get("share_count", 0)
+        views = data.get("play_count", 0)
+        verified = "✅ Đã xác minh" if data["author"].get("verified", False) else "❌ Chưa xác minh"
+        unique_id = data["author"].get("unique_id", "Không có ID")
+        sec_uid = data["author"].get("sec_uid", "Không có UID bảo mật")
+        following_count = data["author"].get("following_count", 0)
+        video_count = data.get("video_count", 0)
+        share_url = data.get("share_url", "Không có link chia sẻ")
+
+        # Nếu có tham số download → tải video về luôn
+        if request.args.get("download") == "1":
+            r = requests.get(video_url, stream=True)
+            return Response(
+                r.iter_content(chunk_size=1024),
+                content_type="video/mp4",
+                headers={"Content-Disposition": f"attachment; filename={title}.mp4"}
+            )
+
+        # Nếu không → trả JSON với thông tin + link tải
+        info_text = (
+            f"🎬 {title}\n"
+            f"👤 Người đăng: {author}\n"
+            f"🌍 Khu vực: {region}\n"
+            f"⏳ Thời lượng: {duration} giây\n"
+            f"👍 Lượt thích: {likes}\n"
+            f"💬 Bình luận: {comments}\n"
+            f"🔄 Chia sẻ: {shares}\n"
+            f"👀 Lượt xem: {views}\n"
+            f"✔️ Trạng thái tài khoản: {verified}\n"
+            f"🔹 ID TikTok: {unique_id}\n"
+            f"🔹 UID bảo mật: {sec_uid}\n"
+            f"🔹 Đang theo dõi: {following_count}\n"
+            f"📹 Tổng số video: {video_count}\n"
+            f"🔗 Link chia sẻ: {share_url}\n"
+            f"🎵 Nhạc nền: {music_url}\n"
+            f"▶️ Video tải xuống: {video_url}\n"
+            f"🖼️ Avatar: {avatar}"
+        )
+
+        return jsonify({
+            "status": "success",
+            "message": info_text,
+            "raw": {
+                "title": title,
+                "author": author,
+                "avatar": avatar,
+                "region": region,
+                "duration": duration,
+                "likes": likes,
+                "comments": comments,
+                "shares": shares,
+                "views": views,
+                "verified": verified,
+                "unique_id": unique_id,
+                "sec_uid": sec_uid,
+                "following_count": following_count,
+                "video_count": video_count,
+                "share_url": share_url,
+                "music_url": music_url,
+                "video_url": video_url
+            }
+        })
+
+    except Exception as e:
+        return jsonify({"⚠️ lỗi": str(e)}), 500
+# ==============================
+# HÀM: Lấy thông tin nickname + region
+# ==============================
+def get_player_info(player_id):
+    headers = {
+        "User-Agent": "Mozilla/5.0",
+        "accept": "application/json",
+        "content-type": "application/json",
+    }
+    payload = {"app_id": 100067, "login_id": str(player_id), "app_server_id": 0}
+    try:
+        res = requests.post("https://shop2game.com/api/auth/player_id_login", headers=headers, json=payload, timeout=10)
+        if res.status_code == 200:
+            data = res.json()
+            return {
+                "nickname": data.get("nickname", "❌ Không rõ"),
+                "region": data.get("region", "❌ Không rõ")
+            }
+    except Exception as e:
+        print("⚠️ get_player_info error:", e)
+    return {"nickname": "❌ Không thể lấy tên", "region": "❌ Không thấy khu vực"}
+
+# ==============================
+# API: Check banned
+# ==============================
+def check_banned(player_id):
+    url = f"https://ff.garena.com/api/antihack/check_banned?lang=en&uid={player_id}"
+    try:
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        player_info = get_player_info(player_id)
+        if response.status_code == 200:
+            data = response.json().get("data", {})
+            is_banned = data.get("is_banned", 0)
+            period = data.get("period", 0)
+            duration = f"{period} ngày" if is_banned and period > 0 else ("Khoá vĩnh viễn" if is_banned else "Không bị khóa")
+            return jsonify({
+                "✅ status": "Kiểm tra thành công",
+                "🆔 UID": player_id,
+                "🏷️ Nickname": player_info["nickname"],
+                "🌍 Region": player_info["region"],
+                "🔒 Account": "🚫 BỊ KHOÁ" if is_banned else "✅ BÌNH THƯỜNG",
+                "⏳ Duration": duration,
+                "📊 Banned?": bool(is_banned),
+                "💎 Powered by": "t.me/@henntaiiz",
+            })
+        return jsonify({"❌ lỗi": "Không thể lấy trạng thái cấm từ máy chủ Garena"}), 500
+    except Exception as e:
+        return jsonify({"💥 exception": str(e)}), 500
+
+@app.route("/check", methods=["POST", "GET"])
+def api_check():
+    key = request.args.get("key")
+    if key != API_KEY:
+        return jsonify({"error": "❌ Unauthorized. Invalid key!"}), 403
+    uid = request.args.get("uid")
+    if not uid:
+        return jsonify({"error": "⚠️ Cần phải có ID người chơi (uid)!"}), 400
+    return check_banned(uid)
+
+# ==============================
+# API: Decode token qua proxy
+# ==============================
+@app.route("/decode", methods=["GET", "POST"])
+def api_decode_proxy():
+    key = request.args.get("key") or request.form.get("key")
+    if key != API_KEY:
+        return jsonify({"error": "❌ Unauthorized. Invalid key!"}), 403
+
+    token = request.args.get("token") or request.form.get("token")
+    if not token:
+        return jsonify({"error": "❌ token parameter required"}), 400
+
+    try:
+        decoded = jwt.decode(token, options={"verify_signature": False})
+        exp_ts = decoded.get("exp")
+        exp_time = None
+        expired = None
+        message = "Không có thời gian hết hạn"
+
+        if exp_ts:
+            exp_time = datetime.datetime.fromtimestamp(exp_ts)
+            expired = exp_time < datetime.datetime.utcnow()
+            message = f"Token expired at {exp_time}" if expired else f"Token valid until {exp_time}"
+
+        return jsonify({
+            "status": "success",
+            "message": message,
+            "expired": expired,
+            "exp_time": exp_time.strftime("%Y-%m-%d %H:%M:%S") if exp_time else None,
+            "payload": decoded,
+            "token": token
+        })
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"❌ Decode lỗi: {str(e)}"})
+
+    
+    
+# ==============================
+# Generate token từ uid/pass
+# ==============================
+
+# ========================
+# /token - Lấy token từ uid/password
+# ========================
+@app.route("/token", methods=["GET", "POST"])
+def api_token_generate():
+    key = request.args.get("key") or request.form.get("key")
+    if key != API_KEY:
+        return jsonify({"error": "❌ Unauthorized. Invalid key!"}), 403
+
+    uid = request.args.get("uid") or request.form.get("uid")
+    password = request.args.get("password") or request.form.get("password")
+
+    if not uid or not password:
+        return jsonify({"error": "⚠️ Missing uid or password"}), 400
+
+    API_URL = f"http://narayan-gwt-token.vercel.app/token?uid={uid}&password={password}"
+
+    try:
+        res = requests.get(API_URL, timeout=5)
+        if res.status_code == 200:
+            token = res.json().get("token")
+            return jsonify({
+                "status": "success",
+                "uid": uid,
+                "token": token
+            })
+        return jsonify({"error": f"❌ HTTP {res.status_code}"}), res.status_code
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ==============================
+# API: Decode token trực tiếp
+# ==============================
+@app.route("/check_token", methods=["GET"])
+def check_token():
+    # 🔑 Bảo mật bằng key
+    key = request.args.get("key")
+    if key != "hentaiz":
+        return jsonify({"error": "❌ Unauthorized. Invalid key!"}), 403
+
+    # Lấy token(s)
+    token = request.args.get("token")
+    if not token:
+        return jsonify({"error": "❌ token parameter is required"}), 400
+
+    results = []
+    tokens = token.split(",")  # hỗ trợ nhiều token cách nhau bằng dấu phẩy
+
+    for idx, token in enumerate(tokens, start=1):
+        token = token.strip()
+        try:
+            # Decode JWT không cần verify chữ ký
+            decoded = jwt.decode(token, options={"verify_signature": False})
+
+            # Xử lý thời gian hết hạn
+            exp_ts = decoded.get("exp")
+            exp_time = None
+            expired = None
+            msg_exp = "Không có thời gian hết hạn"
+
+            if exp_ts:
+                exp_time = datetime.datetime.fromtimestamp(exp_ts)
+                now = datetime.datetime.utcnow()
+                expired = exp_time < now
+                msg_exp = (
+                    f"Token expires at {exp_time}"
+                    if expired
+                    else f"Token is valid until {exp_time}"
+                )
+
+            results.append({
+                "index": idx,
+                "status": "success",
+                "message": msg_exp,
+                "decode_message": "✓ Token decode thành công",
+                "expired": expired,
+                "exp_time": str(exp_time) if exp_time else None,
+                "payload": decoded,
+                "token": token[:50000] + "..." if len(token) > 50000 else token
+            })
+
+        except Exception as e:
+            results.append({
+                "index": idx,
+                "status": "error",
+                "message": f"❌ Decode lỗi: {str(e)}",
+                "expired": None,
+                "exp_time": None,
+                "payload": None,
+                "token": token[:50000] + "..." if len(token) > 50000 else token
+            })
+
+    return jsonify({"results": results})
+
+    
+            
+# === Flask Routes ===
+@app.route('/info')
+@cached_endpoint()
+def get_account_info():
+    uid = request.args.get('uid')
+    region = request.args.get('region')
+
+    if not uid:
+        return jsonify({"error": "⚠️ Cần nhập UID người chơi!"}), 400
+
+    # Nếu không có region → tự động lấy qua API
+    if not region:
+        try:
+            res = requests.get(f"https://regoin-api.vercel.app/region?uid={uid}", timeout=5)
+            if res.status_code == 200:
+                data = res.json()
+                region = data.get("region")
+                if not region:
+                    return jsonify({"error": "❌ Không thể lấy region từ API."}), 400
+            else:
+                return jsonify({"error": f"❌ API region trả về lỗi HTTP {res.status_code}"}), 400
+        except Exception as e:
+            return jsonify({"error": f"⚠️ Lỗi khi lấy region: {str(e)}"}), 500
+
+    try:
+        raw_data = asyncio.run(GetAccountInformation(uid, "7", region, "/GetPlayerPersonalShow"))
+
+        has_elite_pass = raw_data["basicInfo"].get("hasElitePass", False)
+        if not has_elite_pass:
+            has_elite_pass = any(str(item).startswith('9') for item in raw_data.get("profileInfo", {}).get("equipedItems", []))
+
+        response = {
+            "AccountInfo": {
+                "AccountAvatarId": raw_data.get("basicInfo", {}).get("headPic", 0),
+                "AccountBPBadges": raw_data.get("basicInfo", {}).get("badgeCnt", 0),
+                "AccountBPID": raw_data.get("basicInfo", {}).get("badgeId", 0),
+                "AccountBannerId": raw_data.get("basicInfo", {}).get("bannerId", 0),
+                "AccountCreateTime": raw_data.get("basicInfo", {}).get("createAt", 0),
+                "AccountEXP": raw_data.get("basicInfo", {}).get("exp", 0),
+                "AccountLastLogin": raw_data.get("basicInfo", {}).get("lastLoginAt", 0),
+                "AccountLevel": raw_data.get("basicInfo", {}).get("level", 0),
+                "AccountLikes": raw_data.get("basicInfo", {}).get("liked", 0),
+                "AccountName": raw_data.get("basicInfo", {}).get("nickname", ""),
+                "AccountRegion": raw_data.get("basicInfo", {}).get("region", ""),
+                "AccountSeasonId": raw_data.get("basicInfo", {}).get("seasonId", 0),
+                "AccountType": raw_data.get("basicInfo", {}).get("accountType", 0),
+                "AvatarImage": f"https://www.dl.cdn.freefireofficial.com/icons/{raw_data.get('basicInfo', {}).get('headPic', 0)}.png",
+                "BannerImage": f"https://www.dl.cdn.freefireofficial.com/icons/{raw_data.get('basicInfo', {}).get('bannerId', 0)}.png",
+                "BrMaxRank": raw_data.get("basicInfo", {}).get("maxRank", 0),
+                "BrRankPoint": raw_data.get("basicInfo", {}).get("rankingPoints", 0),
+                "CsMaxRank": raw_data.get("basicInfo", {}).get("csMaxRank", 0),
+                "CsRankPoint": raw_data.get("basicInfo", {}).get("csRankingPoints", 0),
+                "EquippedWeapon": raw_data.get("basicInfo", {}).get("weaponSkinShows", []),
+                "EquippedWeaponImages": [
+                    f"https://www.dl.cdn.freefireofficial.com/icons/{weapon}.png" 
+                    for weapon in raw_data.get("basicInfo", {}).get("weaponSkinShows", [])
+                ],
+                "ReleaseVersion": raw_data.get("basicInfo", {}).get("releaseVersion", ""),
+                "Role": raw_data.get("basicInfo", {}).get("role", 0),
+                "ShowBrRank": raw_data.get("basicInfo", {}).get("showBrRank", False),
+                "ShowCsRank": raw_data.get("basicInfo", {}).get("showCsRank", False),
+                "Title": raw_data.get("basicInfo", {}).get("title", 0),
+                "hasElitePass": has_elite_pass
+            },
+            "AccountProfileInfo": {
+                "EquippedOutfit": raw_data.get("profileInfo", {}).get("clothes", []),
+                "EquippedOutfitImages": [
+                    f"https://www.dl.cdn.freefireofficial.com/icons/{item}.png" 
+                    for item in raw_data.get("profileInfo", {}).get("clothes", [])
+                ],
+                "EquippedSkills": raw_data.get("profileInfo", {}).get("equipedSkills", []),
+                "EquippedSkillsImages": [
+                    "https://i.postimg.cc/BnpRPsjv/Kelly-The-Swift.png",
+                    "https://freefiremobile-a.akamaihd.net/common/web_event/official2.ff.garena.all/img/20228/e21eb41a3705ff817156dd5758157274.png",
+                    "https://i.postimg.cc/FznQS4Wc/Moco-Rebirth.png",
+                    "https://dl.dir.freefiremobile.com/common/web_event/official2.ff.garena.all/202412/b2f635a96ed787a8e540031402ea751b.png"
+                ]
+            },
+            "GuildInfo": {
+                "GuildCapacity": raw_data.get("clanBasicInfo", {}).get("capacity", 0),
+                "GuildID": raw_data.get("clanBasicInfo", {}).get("clanId", ""),
+                "GuildLevel": raw_data.get("clanBasicInfo", {}).get("clanLevel", 0),
+                "GuildMember": raw_data.get("clanBasicInfo", {}).get("memberNum", 0),
+                "GuildName": raw_data.get("clanBasicInfo", {}).get("clanName", ""),
+                "GuildOwner": raw_data.get("clanBasicInfo", {}).get("captainId", "")
+            },
+            "captainBasicInfo": {
+                "EquippedWeapon": raw_data.get("basicInfo", {}).get("weaponSkinShows", []),
+                "accountId": uid,
+                "accountType": raw_data.get("basicInfo", {}).get("accountType", 0),
+                "badgeCnt": raw_data.get("basicInfo", {}).get("badgeCnt", 0),
+                "badgeId": str(raw_data.get("basicInfo", {}).get("badgeId", "")),
+                "createAt": str(raw_data.get("basicInfo", {}).get("createAt", "")),
+                "csMaxRank": raw_data.get("basicInfo", {}).get("csMaxRank", 0),
+                "csRank": raw_data.get("basicInfo", {}).get("csRank", 0),
+                "csRankingPoints": raw_data.get("basicInfo", {}).get("csRankingPoints", 0),
+                "exp": raw_data.get("basicInfo", {}).get("exp", 0),
+                "lastLoginAt": str(raw_data.get("basicInfo", {}).get("lastLoginAt", "")),
+                "level": raw_data.get("basicInfo", {}).get("level", 0),
+                "liked": raw_data.get("basicInfo", {}).get("liked", 0),
+                "maxRank": raw_data.get("basicInfo", {}).get("maxRank", 0),
+                "nickname": raw_data.get("basicInfo", {}).get("nickname", ""),
+                "rank": raw_data.get("basicInfo", {}).get("rank", 0),
+                "rankingPoints": raw_data.get("basicInfo", {}).get("rankingPoints", 0),
+                "region": region.upper(),
+                "releaseVersion": raw_data.get("basicInfo", {}).get("releaseVersion", ""),
+                "seasonId": raw_data.get("basicInfo", {}).get("seasonId", 0),
+                "showBrRank": raw_data.get("basicInfo", {}).get("showBrRank", False),
+                "showCsRank": raw_data.get("basicInfo", {}).get("showCsRank", False),
+                "title": raw_data.get("basicInfo", {}).get("title", 0)
+            },
+            "creditScoreInfo": {
+                "creditScore": raw_data.get("creditScoreInfo", {}).get("creditScore", 0),
+                "periodicSummaryEndTime": str(raw_data.get("creditScoreInfo", {}).get("periodicSummaryEndTime", "")),
+                "rewardState": 1 if raw_data.get("creditScoreInfo", {}).get("rewardState", "") == "REWARD_STATE_UNCLAIMED" else 0
+            },
+            "petInfo": {
+                "exp": raw_data.get("petInfo", {}).get("exp", 0),
+                "id": raw_data.get("petInfo", {}).get("id", 0),
+                "isSelected": raw_data.get("petInfo", {}).get("isSelected", False),
+                "level": raw_data.get("petInfo", {}).get("level", 0),
+                "selectedSkillId": raw_data.get("petInfo", {}).get("selectedSkillId", 0),
+                "skinId": raw_data.get("petInfo", {}).get("skinId", 0)
+            },
+            "socialinfo": {
+                "AccountLanguage": raw_data.get("socialInfo", {}).get("language", "").replace("Language_", ""),
+                "AccountPreferMode": raw_data.get("socialInfo", {}).get("modePrefer", "").replace("ModePrefer_", ""),
+                "AccountSignature": raw_data.get("socialInfo", {}).get("signature", "")
+            }
+        }
+        
+        return jsonify(response), 200, {'Content-Type': 'application/json; charset=utf-8'}
+
+    except KeyError as e:
+        return jsonify({
+            "error": f"Required field missing in API response: {str(e)}",
+            "details": "The Free Fire API response is missing expected fields"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "error": "Failed to fetch player information",
+            "details": str(e)
+        }), 500
+
+@app.route('/refresh', methods=['GET','POST'])
+def refresh_tokens_endpoint():
+    try:
+        asyncio.run(initialize_tokens())
+        return jsonify({'message':'Tokens refreshed for all regions.'}),200
+    except Exception as e:
+        return jsonify({'error': f'Refresh failed: {e}'}),500
+
+# ======= Check Key ============
+@app.route('/check_key', methods=['GET','POST'])
+def check_key():
+    api_key = request.args.get('key')
+    if not api_key:
+        return jsonify({"error": "API key is missing"}), 401
+    if api_key in API_KEY:
+        return jsonify({
+            "status": "valid",
+            "key_status": API_KEY[api_key]
+        })
+    return jsonify({"status": "invalid"}), 401
+    
+# === Startup ===
+async def startup():
+    await initialize_tokens()
+    asyncio.create_task(refresh_tokens_periodically())
+
+if __name__ == '__main__':
+    asyncio.run(startup())
+    app.run(host='0.0.0.0', port=5000, debug=True)
